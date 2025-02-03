@@ -1,8 +1,8 @@
 package server
 
 import (
+	"darkchat/protocol"
 	"fmt"
-	"io"
 	"log"
 	"net"
 )
@@ -45,14 +45,12 @@ func handleClientConnection(conn net.Conn) {
 	defer conn.Close()
 
 	for {
-		buffer := make([]byte, 1024)
-		_, err := conn.Read(buffer)
+		payload, err := protocol.Decode(conn)
 
 		if err != nil {
-			if err != io.EOF {
-				log.Println(err)
-			}
-			return
+			log.Println(err)
+			continue
 		}
+		fmt.Printf("Received: %s\n", payload)
 	}
 }
