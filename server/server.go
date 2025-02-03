@@ -1,11 +1,18 @@
 package server
 
 import (
+	"darkchat/monitor"
 	"darkchat/protocol"
 	"fmt"
 	"log"
 	"net"
+	"os"
 )
+
+type Server struct {
+	*ConnectionBuilder
+	*monitor.Monitor
+}
 
 type ConnectionBuilder struct {
 	ConnectionType string
@@ -26,15 +33,16 @@ func (c ConnectionBuilder) Addressbuilder() string {
 // error occurs while accepting a connection, the error is logged and the
 // function continues. The function does not return until an error occurs while
 // listening.
-func ServerStart(builder ConnectionBuilder) {
+func ServerStart(builder Server) {
 
 	server, err := net.Listen(builder.ConnectionType, builder.Addressbuilder())
 
 	if err != nil {
-		log.Fatal(err)
+		builder.Fatal(err.Error())
+		os.Exit(1)
 	}
 
-	log.Printf("Listening on %s", server.Addr())
+	builder.Info(fmt.Sprintf("Listening on %s", builder.Addressbuilder()))
 
 	defer server.Close()
 
@@ -42,7 +50,7 @@ func ServerStart(builder ConnectionBuilder) {
 		conn, err := server.Accept()
 
 		if err != nil {
-			log.Println(err)
+			builder.Error(err.Error())
 			continue
 		}
 
