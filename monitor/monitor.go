@@ -38,7 +38,7 @@ func New(filename string) *Monitor {
 // string, but common levels are "INFO", "ERROR", "DEBUG", and "WARNING". The
 // message is formatted with a timestamp and the log level, and then written to
 // the underlying logger.
-func (m Monitor) Log(level, message string) {
+func (m *Monitor) Log(level, message string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -53,12 +53,12 @@ func (m Monitor) Log(level, message string) {
 // It must be called when the Monitor is no longer needed to ensure
 // that the file is properly closed and resources are released.
 
-func (m Monitor) Close() {
+func (m *Monitor) Close() {
 	m.file.Close()
 }
 
 // Info logs a message with the level "INFO".
-func (m Monitor) Info(message string) {
+func (m *Monitor) Info(message string) {
 	m.Log("INFO", message)
 }
 
@@ -68,7 +68,7 @@ func (m Monitor) Info(message string) {
 // This method formats the message with a timestamp and the log level,
 // then writes it to the underlying logger.
 
-func (m Monitor) Error(message string) {
+func (m *Monitor) Error(message string) {
 	m.Log("ERROR", message)
 }
 
@@ -76,13 +76,13 @@ func (m Monitor) Error(message string) {
 // This method formats the message with a timestamp and the log level,
 // then writes it to the underlying logger.
 
-func (m Monitor) Debug(message string) {
+func (m *Monitor) Debug(message string) {
 	m.Log("DEBUG", message)
 }
 
 // Warning logs a message with the level "WARNING".
 // This method formats the message with a timestamp and the log level,
 // then writes it to the underlying logger.
-func (m Monitor) Warning(message string) {
+func (m *Monitor) Warning(message string) {
 	m.Log("WARNING", message)
 }
