@@ -19,3 +19,5 @@ COPY --from=builder /app/darkchat /app/darkchat
 RUN chmod +x /app/darkchat
 
 EXPOSE 8080
+
+ENTRYPOINT [ "./darkchat" ]
