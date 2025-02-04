@@ -10,7 +10,9 @@ import (
 	"testing"
 )
 
-// TestPayloadEncoding tests that the headers of a message are correctly encoded and decoded.
+// TestPayloadEncoding tests that a message can be encoded with a message type header
+// correctly. It creates a message, encodes it, and checks that the decoded headers
+// are equal to the original message type.
 func TestPayloadEncoding(t *testing.T) {
 	message := Message("This some cool communication protocol")
 
@@ -55,6 +57,9 @@ func TestPayloadEncoding(t *testing.T) {
 
 }
 
+// TestPayloadDecode tests that a message can be encoded and then decoded
+// correctly. It creates a message, encodes it, decodes it, and checks that the
+// decoded message is equal to the original message.
 func TestPayloadDecode(t *testing.T) {
 
 	message := Message("This some cool communication protocol")

@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"darkchat/monitor"
+	"darkchat/pinger"
 	"darkchat/protocol"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"time"
 )
 
 type Server struct {
@@ -66,14 +69,37 @@ func ServerStart(builder Server) {
 // continues to the next iteration. The function does not return until the
 // connection is closed.
 func handleClientConnection(conn net.Conn) {
-	defer conn.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		conn.Close()
+	}()
 
+	resetTimer := make(chan time.Duration, 1)
+	resetTimer <- time.Second
+
+	go pinger.Ping(ctx, conn, resetTimer)
+
+	err := conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
 	for {
 		payload, err := protocol.Decode(conn)
 
 		if err != nil {
 			log.Println(err)
-			continue
+			return
+		}
+		resetTimer <- 0
+
+		err = conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+		if err != nil {
+			log.Println(err)
+			return
 		}
 		fmt.Printf("Received: %s\n", payload)
 	}
