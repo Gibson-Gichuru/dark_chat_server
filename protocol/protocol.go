@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	MessageType    uint8  = iota + 1
+	MessageType uint8 = iota + 1
+	HeartBeat
 	MaxPayloadsize uint32 = 10 << 20
 )
 
@@ -41,7 +42,8 @@ func (m Message) Byte() []byte   { return []byte(m) }
 // It writes a message to the writer with a message type header, and returns the number of bytes written and any error encountered.
 func (m Message) WriteTo(w io.Writer) (int64, error) {
 
-	o, err := w.Write([]byte(m))
+	encoded := base64.StdEncoding.EncodeToString(m.Byte())
+	o, err := w.Write([]byte(encoded))
 
 	return int64(o), err
 
@@ -55,17 +57,31 @@ func (m Message) WriteTo(w io.Writer) (int64, error) {
 
 func (m *Message) ReadFrom(r io.Reader) (int64, error) {
 
-	buf := new(bytes.Buffer)
+	var size uint32
 
-	n, err := buf.ReadFrom(r)
+	err := binary.Read(r, binary.BigEndian, &size)
 
 	if err != nil {
 		return 0, err
 	}
 
-	*m = Message(buf.String())
+	buf := make([]byte, size)
 
-	return n + int64(n), err
+	n, err := r.Read(buf)
+
+	if err != nil {
+		return int64(n), err
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(string(buf))
+
+	if err != nil {
+		return int64(n), err
+	}
+
+	*m = Message(decoded)
+
+	return int64(n), nil
 }
 
 // Decode reads a message from the reader with a message type header, and
@@ -73,23 +89,46 @@ func (m *Message) ReadFrom(r io.Reader) (int64, error) {
 // If the message type is unknown, it returns an error.
 func Decode(r io.Reader) (Payload, error) {
 
-	var headers PayloadHeaders
+	var typ uint8
 
-	var payloadHeadersLen uint8
-
-	var payload Payload
-
-	headersBuf := new(bytes.Buffer)
-
-	err := binary.Read(r, binary.BigEndian, &payloadHeadersLen)
+	err := binary.Read(r, binary.BigEndian, &typ)
 
 	if err != nil {
 		return nil, err
 	}
 
-	io.CopyN(headersBuf, r, int64(payloadHeadersLen))
+	switch typ {
+	case HeartBeat:
+		return nil, nil
 
-	decoded, err := base64.StdEncoding.DecodeString(headersBuf.String())
+	case MessageType:
+		return decodeMessageType(r)
+	default:
+		return nil, ErrorUnknownType
+	}
+}
+
+func decodeMessageType(r io.Reader) (Payload, error) {
+
+	var size uint8
+	var headers PayloadHeaders
+	var payload = new(Message)
+
+	err := binary.Read(r, binary.BigEndian, &size)
+
+	if err != nil {
+		return nil, err
+	}
+
+	headerBuf := make([]byte, size)
+
+	_, err = r.Read(headerBuf)
+
+	if err != nil {
+		return nil, err
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(string(headerBuf))
 
 	if err != nil {
 		return nil, err
@@ -98,33 +137,58 @@ func Decode(r io.Reader) (Payload, error) {
 	err = json.Unmarshal(decoded, &headers)
 
 	if err != nil {
-		return nil, ErrorEmptyHeaders
+		return nil, err
 	}
 
-	switch headers.Type {
-	case MessageType:
-		payload = new(Message)
-	default:
-		return nil, ErrorUnknownType
+	if headers.Size > MaxPayloadsize {
+		return nil, ErrorMaxPayloadSize
 	}
 
-	_, err = payload.ReadFrom(r)
+	payloadSize := headers.Size
 
-	return payload, err
+	payloadSizeBuf := new(bytes.Buffer)
+
+	err = binary.Write(payloadSizeBuf, binary.BigEndian, payloadSize)
+
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = payload.ReadFrom(
+		io.MultiReader(payloadSizeBuf, r),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return payload, nil
 }
 
 func Encode(w io.Writer, payload Payload, payloadType uint8) (int64, error) {
 
-	msgHeaders := PayloadHeaders{Type: payloadType, Size: uint32(len(payload.Byte()))}
+	switch payloadType {
+	case HeartBeat:
+		err := binary.Write(w, binary.BigEndian, HeartBeat)
 
-	msgHeadersStr, err := json.Marshal(msgHeaders)
+		if err != nil {
+			return 0, err
+		}
 
-	if err != nil {
-		return 0, err
+		return 1, nil
+	case MessageType:
+
+		return encodeMessageType(w, payload)
+
+	default:
+		return 0, ErrorUnknownType
 	}
-	encoded := base64.StdEncoding.EncodeToString(msgHeadersStr)
 
-	err = binary.Write(w, binary.BigEndian, uint8(len(encoded)))
+}
+
+func encodeMessageType(w io.Writer, payload Payload) (int64, error) {
+
+	err := binary.Write(w, binary.BigEndian, MessageType)
 
 	if err != nil {
 		return 0, err
@@ -132,9 +196,33 @@ func Encode(w io.Writer, payload Payload, payloadType uint8) (int64, error) {
 
 	var n int64 = 1
 
-	io.CopyN(w, bytes.NewReader([]byte(encoded)), int64(len(encoded)))
+	payloadHeaders := PayloadHeaders{
+		Size: uint32(len(
+			base64.StdEncoding.EncodeToString(payload.Byte()),
+		)),
+	}
 
-	n += 8
+	payloadHeadersJson, err := json.Marshal(payloadHeaders)
+
+	if err != nil {
+		return 1, err
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(payloadHeadersJson)
+
+	err = binary.Write(w, binary.BigEndian, uint8(len(encoded)))
+
+	if err != nil {
+		return n, err
+	}
+
+	_, err = w.Write([]byte(encoded))
+
+	if err != nil {
+		return n, nil
+	}
+
+	n += int64(len(encoded))
 
 	o, err := payload.WriteTo(w)
 

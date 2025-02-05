@@ -3,6 +3,7 @@ package pinger
 import (
 	"context"
 	"darkchat/monitor"
+	"darkchat/protocol"
 	"io"
 	"time"
 )
@@ -54,7 +55,8 @@ func Ping(ctx context.Context, w io.Writer, reset <-chan time.Duration) {
 				interval = newInterval
 			}
 		case <-timer.C:
-			if _, err := w.Write([]byte("PING")); err != nil {
+			var payload = protocol.Message("PING")
+			if _, err := protocol.Encode(w, &payload, protocol.HeartbeatType); err != nil {
 				monitorLogger.Error(err.Error())
 			}
 		}

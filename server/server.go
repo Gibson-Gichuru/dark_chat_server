@@ -1,21 +1,17 @@
 package server
 
 import (
-	"context"
 	"darkchat/monitor"
-	"darkchat/pinger"
 	"darkchat/protocol"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"time"
 )
 
-type Server struct {
-	*ConnectionBuilder
-	*monitor.Monitor
-}
+const DEFAULTPINGINTERVAL = 30 * time.Second
+
+var monitorLogger = monitor.New("server.log")
 
 type ConnectionBuilder struct {
 	ConnectionType string
@@ -36,16 +32,16 @@ func (c ConnectionBuilder) Addressbuilder() string {
 // error occurs while accepting a connection, the error is logged and the
 // function continues. The function does not return until an error occurs while
 // listening.
-func ServerStart(builder Server) {
+func ServerStart(builder ConnectionBuilder) {
 
 	server, err := net.Listen(builder.ConnectionType, builder.Addressbuilder())
 
 	if err != nil {
-		builder.Fatal(err.Error())
+		monitorLogger.Fatal(err.Error())
 		os.Exit(1)
 	}
 
-	builder.Info(fmt.Sprintf("Listening on %s", builder.Addressbuilder()))
+	monitorLogger.Info(fmt.Sprintf("Listening on %s", builder.Addressbuilder()))
 
 	defer server.Close()
 
@@ -53,9 +49,10 @@ func ServerStart(builder Server) {
 		conn, err := server.Accept()
 
 		if err != nil {
-			builder.Error(err.Error())
+			monitorLogger.Error(err.Error())
 			continue
 		}
+		monitorLogger.Info(fmt.Sprintf("Accepted connection from %s", conn.RemoteAddr().String()))
 
 		go handleClientConnection(conn)
 
@@ -69,38 +66,51 @@ func ServerStart(builder Server) {
 // continues to the next iteration. The function does not return until the
 // connection is closed.
 func handleClientConnection(conn net.Conn) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer func() {
-		cancel()
-		conn.Close()
-	}()
+	defer conn.Close()
+	// ctx, cancel := context.WithCancel(context.Background())
+	// defer func() {
+	// 	cancel()
+	// 	conn.Close()
+	// }()
 
-	resetTimer := make(chan time.Duration, 1)
-	resetTimer <- time.Second
+	// resetTimer := make(chan time.Duration, 1)
+	// resetTimer <- time.Second
 
-	go pinger.Ping(ctx, conn, resetTimer)
+	// go pinger.Ping(ctx, conn, resetTimer)
 
-	err := conn.SetDeadline(time.Now().Add(10 * time.Second))
+	// if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
+	// 	return
+	// }
+
+	for {
+
+		message, err := protocol.Decode(conn)
+
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return
+		}
+
+		fmt.Println(message)
+		// // resetTimer <- 0
+
+		// // if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
+		// // 	return
+		// // }
+
+		// fmt.Println("This should be working")
+		// fmt.Printf("Received: %s\n", payload)
+	}
+}
+
+func extendDeadline(conn net.Conn, duration time.Duration) error {
+	err := conn.SetDeadline(time.Now().Add(duration))
 
 	if err != nil {
-		log.Println(err)
-		return
+		monitorLogger.Error(err.Error())
+		return err
 	}
-	for {
-		payload, err := protocol.Decode(conn)
+	monitorLogger.Info(fmt.Sprintf("Connection Deadline set to :%d for client: %s", duration, conn.RemoteAddr().String()))
 
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		resetTimer <- 0
-
-		err = conn.SetDeadline(time.Now().Add(10 * time.Second))
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		fmt.Printf("Received: %s\n", payload)
-	}
+	return nil
 }

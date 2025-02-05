@@ -1,7 +1,6 @@
 package main
 
 import (
-	"darkchat/monitor"
 	"darkchat/server"
 	"flag"
 	"fmt"
@@ -22,13 +21,10 @@ func init() {
 func main() {
 	flag.Parse()
 
-	s := server.Server{
-		ConnectionBuilder: &server.ConnectionBuilder{
-			ConnectionType: "tcp",
-			Address:        *address,
-			Port:           *port,
-		},
-		Monitor: monitor.New("server.log"),
+	s := server.ConnectionBuilder{
+		ConnectionType: "tcp",
+		Address:        *address,
+		Port:           *port,
 	}
 	server.ServerStart(s)
 }
