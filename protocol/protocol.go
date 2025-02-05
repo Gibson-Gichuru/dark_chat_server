@@ -95,9 +95,9 @@ func Decode(r io.Reader) (Payload, error) {
 		return nil, err
 	}
 
-	header := json.Unmarshal(decoded, &headers)
+	err = json.Unmarshal(decoded, &headers)
 
-	if header != nil {
+	if err != nil {
 		return nil, ErrorEmptyHeaders
 	}
 
