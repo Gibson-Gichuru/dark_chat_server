@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"darkchat/monitor"
+	"darkchat/pinger"
 	"darkchat/protocol"
 	"fmt"
 	"net"
@@ -67,20 +69,20 @@ func ServerStart(builder ConnectionBuilder) {
 // connection is closed.
 func handleClientConnection(conn net.Conn) {
 	defer conn.Close()
-	// ctx, cancel := context.WithCancel(context.Background())
-	// defer func() {
-	// 	cancel()
-	// 	conn.Close()
-	// }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		conn.Close()
+	}()
 
-	// resetTimer := make(chan time.Duration, 1)
-	// resetTimer <- time.Second
+	resetTimer := make(chan time.Duration, 1)
+	resetTimer <- time.Second
 
-	// go pinger.Ping(ctx, conn, resetTimer)
+	go pinger.Ping(ctx, conn, resetTimer)
 
-	// if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
-	// 	return
-	// }
+	if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
+		return
+	}
 
 	for {
 
@@ -90,16 +92,13 @@ func handleClientConnection(conn net.Conn) {
 			monitorLogger.Error(err.Error())
 			return
 		}
+		resetTimer <- 0
 
-		fmt.Println(message)
-		// // resetTimer <- 0
+		if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
+			return
+		}
 
-		// // if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
-		// // 	return
-		// // }
-
-		// fmt.Println("This should be working")
-		// fmt.Printf("Received: %s\n", payload)
+		fmt.Printf("Received: %s\n", message)
 	}
 }
 
@@ -110,7 +109,6 @@ func extendDeadline(conn net.Conn, duration time.Duration) error {
 		monitorLogger.Error(err.Error())
 		return err
 	}
-	monitorLogger.Info(fmt.Sprintf("Connection Deadline set to :%d for client: %s", duration, conn.RemoteAddr().String()))
 
 	return nil
 }
