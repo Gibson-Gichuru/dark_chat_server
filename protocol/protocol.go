@@ -136,8 +136,8 @@ func Encode(w io.Writer, payload Payload, payloadType uint8) (int64, error) {
 
 	n += 8
 
-	o, err := w.Write(payload.Byte())
+	o, err := payload.WriteTo(w)
 
-	return n + int64(o), err
+	return n + o, err
 
 }
