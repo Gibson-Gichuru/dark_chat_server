@@ -33,10 +33,30 @@ type PayloadHeaders struct {
 	Encoding string
 }
 
-type Message string
+type Message struct {
+	Message string
+	To      string
+	From    string
+}
 
-func (m Message) String() string { return string(m) }
-func (m Message) Byte() []byte   { return []byte(m) }
+func (m Message) String() string {
+	message, err := json.Marshal(m)
+
+	if err != nil {
+		return ""
+	}
+
+	return string(message)
+}
+func (m Message) Byte() []byte {
+	message, err := json.Marshal(m)
+
+	if err != nil {
+		return []byte("")
+	}
+
+	return []byte(message)
+}
 
 // WriteTo implements the io.WriterTo interface.
 // It writes a message to the writer with a message type header, and returns the number of bytes written and any error encountered.
@@ -79,7 +99,15 @@ func (m *Message) ReadFrom(r io.Reader) (int64, error) {
 		return int64(n), err
 	}
 
-	*m = Message(decoded)
+	var message Message
+
+	err = json.Unmarshal(decoded, &message)
+
+	if err != nil {
+		return int64(n), err
+	}
+
+	*m = message
 
 	return int64(n), nil
 }

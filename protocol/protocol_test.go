@@ -42,7 +42,11 @@ func TestHearBeatPayloadDecoding(t *testing.T) {
 // correctly. It creates a message, encodes it, decodes it, and checks that the
 // decoded message is equal to the original message.
 func TestMessagePayloadEncoding(t *testing.T) {
-	message := Message("Hello, world!")
+	message := Message{
+		Message: "Hello, world",
+		To:      "John Doe",
+		From:    "Jane Doe",
+	}
 
 	buf := new(bytes.Buffer)
 
@@ -54,7 +58,11 @@ func TestMessagePayloadEncoding(t *testing.T) {
 }
 
 func TestMessagePayloadDecoding(t *testing.T) {
-	message := Message("Hello, world")
+	message := Message{
+		Message: "Hello, world",
+		To:      "John Doe",
+		From:    "Jane Doe",
+	}
 
 	buf := new(bytes.Buffer)
 
