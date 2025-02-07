@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"darkchat/database"
 	"darkchat/monitor"
 	"darkchat/pinger"
 	"darkchat/protocol"
@@ -9,6 +10,8 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const DEFAULTPINGINTERVAL = 30 * time.Second
@@ -19,6 +22,11 @@ type ConnectionBuilder struct {
 	ConnectionType string
 	Address        string
 	Port           string
+}
+
+type Client struct {
+	chatId     string
+	connection net.Conn
 }
 
 // Addressbuilder constructs and returns a string representing the full network address
@@ -49,44 +57,73 @@ func ServerStart(builder ConnectionBuilder) {
 
 	for {
 		conn, err := server.Accept()
-
 		if err != nil {
 			monitorLogger.Error(err.Error())
 			continue
 		}
+
+		client := Client{
+			connection: conn,
+			chatId:     uuid.NewString(),
+		}
+
 		monitorLogger.Info(fmt.Sprintf("Accepted connection from %s", conn.RemoteAddr().String()))
 
-		go handleClientConnection(conn)
+		go handleClientConnection(client)
 
 	}
 }
 
-// handleClientConnection is a helper function that is called in a separate
-// goroutine for each incoming connection. It reads messages from the
-// connection, decodes them, and logs them to the console. If an error occurs
-// while reading from the connection, the error is logged and the function
-// continues to the next iteration. The function does not return until the
-// connection is closed.
-func handleClientConnection(conn net.Conn) {
-	defer conn.Close()
+// handleClientConnection manages the lifecycle of a client's connection. It registers the client's chat ID
+// with the database, starts a pinger to send periodic "PING" messages, and listens for incoming messages
+// from the client. Incoming messages are decoded and posted to the chat stream. Outgoing messages from the
+// chat stream are sent to the client. The function handles connection cleanup and error logging.
+
+func handleClientConnection(client Client) {
 	ctx, cancel := context.WithCancel(context.Background())
+	var streamingChanel = make(chan protocol.Payload, 20)
+
 	defer func() {
 		cancel()
-		conn.Close()
+		client.connection.Close()
+
+		err := database.DeleteClientChat(client.chatId)
+
+		if err != nil {
+			monitorLogger.Error(err.Error())
+		}
+
 	}()
 
+	dbErr := database.RegisterClientChat(client.chatId)
+
+	if dbErr != nil {
+		monitorLogger.Error(dbErr.Error())
+		return
+	}
 	resetTimer := make(chan time.Duration, 1)
 	resetTimer <- time.Second
 
-	go pinger.Ping(ctx, conn, resetTimer)
+	go pinger.Ping(ctx, client.connection, resetTimer)
 
-	if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
+	if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL); err != nil {
 		return
 	}
 
+	go database.StreamChat(streamingChanel, client.chatId)
+
+	go func() {
+		for message := range streamingChanel {
+			err := writeToClient(client, message, protocol.MessageType)
+			if err != nil {
+				monitorLogger.Error(err.Error())
+			}
+		}
+	}()
+
 	for {
 
-		message, err := protocol.Decode(conn)
+		message, err := protocol.Decode(client.connection)
 
 		if err != nil {
 			monitorLogger.Error(err.Error())
@@ -94,12 +131,22 @@ func handleClientConnection(conn net.Conn) {
 		}
 		resetTimer <- 0
 
-		if err := extendDeadline(conn, DEFAULTPINGINTERVAL); err != nil {
+		if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL); err != nil {
 			return
 		}
 
-		fmt.Printf("Received: %s\n", message)
+		database.PostToChat(message.String(), client.chatId)
+
 	}
+}
+
+func writeToClient(client Client, message protocol.Payload, messageType uint8) error {
+	_, err := protocol.Encode(
+		client.connection,
+		message,
+		messageType,
+	)
+	return err
 }
 
 func extendDeadline(conn net.Conn, duration time.Duration) error {

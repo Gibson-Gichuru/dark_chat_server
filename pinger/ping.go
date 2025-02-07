@@ -55,7 +55,11 @@ func Ping(ctx context.Context, w io.Writer, reset <-chan time.Duration) {
 				interval = newInterval
 			}
 		case <-timer.C:
-			var payload = protocol.Message("PING")
+			var payload = protocol.Message{
+				Message: "PING",
+				To:      "",
+				From:    "",
+			}
 			if _, err := protocol.Encode(w, &payload, protocol.HeartBeat); err != nil {
 				monitorLogger.Error(err.Error())
 			}
