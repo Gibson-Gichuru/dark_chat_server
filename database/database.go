@@ -5,7 +5,9 @@ import (
 	"darkchat/monitor"
 	"darkchat/protocol"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -48,7 +50,7 @@ func RegisterClientChat(chatId string) error {
 	_, err := redisClient.XInfoStream(ctx, chatId).Result()
 
 	if err != nil {
-		if err == redis.Nil {
+		if strings.Contains(err.Error(), "no such key") {
 			_, err = redisClient.XAdd(
 				ctx,
 				&redis.XAddArgs{
@@ -62,7 +64,9 @@ func RegisterClientChat(chatId string) error {
 			if err != nil {
 				return err
 			}
-			databaseMonitor.Info(fmt.Sprintf("Created new stream: %s", chatId))
+			databaseMonitor.Info(fmt.Sprintf("Created stream: %s", chatId))
+		} else {
+			return errors.New("failed to create stream")
 		}
 	}
 
