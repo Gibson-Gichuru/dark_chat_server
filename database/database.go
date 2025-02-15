@@ -5,11 +5,11 @@ import (
 	"darkchat/monitor"
 	"darkchat/protocol"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -47,27 +47,15 @@ func RegisterClientChat(chatId string) error {
 
 	defer cancel()
 
-	_, err := redisClient.XInfoStream(ctx, chatId).Result()
+	err := redisClient.XGroupCreateMkStream(
+		ctx,
+		fmt.Sprintf("stream:%s", chatId),
+		fmt.Sprintf("group:%s", chatId),
+		"0",
+	).Err()
 
-	if err != nil {
-		if strings.Contains(err.Error(), "no such key") {
-			_, err = redisClient.XAdd(
-				ctx,
-				&redis.XAddArgs{
-					Stream: chatId,
-					Values: map[string]interface{}{
-						"chatId": chatId,
-					},
-				},
-			).Result()
-
-			if err != nil {
-				return err
-			}
-			databaseMonitor.Info(fmt.Sprintf("Created stream: %s", chatId))
-		} else {
-			return errors.New("failed to create stream")
-		}
+	if err != nil && strings.Contains(err.Error(), "BUSYGROUP Consumer Group name already exists") {
+		databaseMonitor.Info(fmt.Sprintf("Stream already exists: %s", chatId))
 	}
 
 	return nil
@@ -79,57 +67,95 @@ func RegisterClientChat(chatId string) error {
 // communicating with Redis. If the stream does not exist, the function does
 // nothing and does not return an error.
 func DeleteClientChat(chatId string) error {
-	_, err := redisClient.Del(context.Background(), chatId).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	defer cancel()
+
+	err := redisClient.XGroupDestroy(
+		ctx,
+		fmt.Sprintf("stream:%s", chatId),
+		fmt.Sprintf("group:%s", chatId),
+	).Err()
 
 	if err != nil {
 		return err
 	}
-	databaseMonitor.Info(fmt.Sprintf("Deleted stream: %s", chatId))
 
+	err = redisClient.Del(ctx, fmt.Sprintf("stream:%s", chatId)).Err()
+
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-// StreamChat listens for new messages on the specified Redis stream (chatId)
-// and sends them to the provided chatChannel as protocol.Payloads.
-// If an error occurs during reading from the stream, it logs the error and stops execution.
 
-func StreamChat(chatChannel chan<- protocol.Payload, chatId string) {
-	ctx := context.Background()
-	defer close(chatChannel)
+// StreamChat listens for new messages from Redis Streams specified by the
+// subscribe channel, and sends them to the chatChannel channel. It creates a
+// new Redis consumer group for each stream, and will continue to receive
+// messages from that stream until the context is canceled. If there is an error
+// communicating with Redis, the error is logged. If the stream does not exist,
+// the function does nothing and does not return an error.
+func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, chatId string) {
+	databaseCTX, cancel := context.WithCancel(context.Background())
+	defer func() {
+		close(chatChannel)
+		cancel()
+	}()
 
-	for {
-		msg, err := redisClient.XRead(ctx, &redis.XReadArgs{
-			Streams: []string{chatId, "$"},
-			Count:   1,
-			Block:   0,
-		}).Result()
+	for stream := range subscribe {
+		go func(chatChannel chan<- protocol.Payload, streamID string) {
 
-		if err != nil {
-			databaseMonitor.Error(err.Error())
-			return
-		}
+			args := &redis.XReadGroupArgs{
+				Group:    fmt.Sprintf("group:%s", chatId),
+				Consumer: fmt.Sprintf("consumer:%s", uuid.NewString()),
+				Streams: []string{
+					fmt.Sprintf("stream:%s", streamID),
+					">",
+				},
+			}
 
-		if len(msg) == 0 || len(msg[0].Messages) == 0 {
-			continue
-		}
+			for {
 
-		messageString, ok := msg[0].Messages[0].Values["message"].(string)
-		if !ok {
-			databaseMonitor.Error("Failed to convert message to string")
-			return
-		}
+				messages, err := redisClient.XReadGroup(databaseCTX, args).Result()
+				if err != nil {
+					databaseMonitor.Error(err.Error())
+					break
+				}
+				if len(messages) == 0 || len(messages[0].Messages) == 0 {
+					continue
+				}
 
-		var message protocol.Message
+				messageString, ok := messages[0].Messages[0].Values["message"].(string)
+				if !ok {
+					databaseMonitor.Error("Failed to convert message to string")
+					return
+				}
 
-		err = json.Unmarshal([]byte(messageString), &message)
+				var message protocol.Message
 
-		if err != nil {
-			databaseMonitor.Error(err.Error())
-			return
-		}
-		chatChannel <- &message
+				err = json.Unmarshal([]byte(messageString), &message)
 
+				if err != nil {
+					databaseMonitor.Error(err.Error())
+					return
+				}
+				chatChannel <- &message
+
+				err = redisClient.XAck(databaseCTX,
+					fmt.Sprintf("stream:%s", streamID),
+					fmt.Sprintf("group:%s", chatId),
+					messages[0].Messages[0].ID).Err()
+
+				if err != nil {
+					databaseMonitor.Error(err.Error())
+					return
+				}
+			}
+
+		}(chatChannel, stream)
 	}
+
 }
 
 // PostToChat sends a message to a Redis Stream identified by the given chatId.
@@ -138,12 +164,12 @@ func StreamChat(chatChannel chan<- protocol.Payload, chatId string) {
 // If the message is successfully sent, the function returns nil.
 func PostToChat(message string, chatId string) error {
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
 	defer cancel()
 
 	_, err := redisClient.XAdd(ctx, &redis.XAddArgs{
-		Stream: chatId,
+		Stream: fmt.Sprintf("stream:%s", chatId),
 		Values: map[string]interface{}{
 			"message": message,
 		},
