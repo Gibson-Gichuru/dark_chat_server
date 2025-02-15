@@ -82,10 +82,13 @@ func ServerStart(builder ConnectionBuilder) {
 func handleClientConnection(client Client) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var streamingChanel = make(chan protocol.Payload, 20)
+	var clientStreamSubChannel = make(chan string, 1)
+	clientStreamSubChannel <- client.chatId
 
 	defer func() {
 		cancel()
 		client.connection.Close()
+		close(clientStreamSubChannel)
 
 		err := database.DeleteClientChat(client.chatId)
 
@@ -110,7 +113,7 @@ func handleClientConnection(client Client) {
 		return
 	}
 
-	go database.StreamChat(streamingChanel, client.chatId)
+	go database.StreamChat(streamingChanel, clientStreamSubChannel, client.chatId)
 
 	go func() {
 		for message := range streamingChanel {
