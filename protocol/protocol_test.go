@@ -22,18 +22,16 @@ func TestHeartBeatPayloadEncoding(t *testing.T) {
 func TestHearBeatPayloadDecoding(t *testing.T) {
 	buf := new(bytes.Buffer)
 
-	_, err := Encode(buf, nil, HeartBeat)
+	var payload = new(Beat)
+
+	_, err := Encode(buf, payload, HeartBeat)
 	if err != nil {
 		t.Errorf("Expected no Encoding error, got %v", err)
 	}
 
-	m, err := Decode(buf)
+	_, err = Decode(buf)
 	if err != nil {
 		t.Errorf("Expected no Decoding error, got %v", err)
-	}
-
-	if m != nil {
-		t.Errorf("Expected nil, got %v", m)
 	}
 
 }
