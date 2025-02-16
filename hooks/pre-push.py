@@ -13,10 +13,7 @@ def run_tests():
 
     logging.info("Running Application tests")
 
-    if platform.system() == "Windows":
-        subprocess.run("go test -v ./...".split(), check=True)
-    else:
-        subprocess.run("go test -v ./...".split(), check=True)
+    subprocess.run("go test -v ./...".split(), check=True)
 
 
 if __name__ == "__main__":
