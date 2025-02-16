@@ -220,7 +220,7 @@ func CheckChatExists(chatId string) bool {
 	result, err := redisClient.SIsMember(
 		ctx,
 		fmt.Sprintf("%s:online", ChatsPrefix),
-		chatId,
+		fmt.Sprintf("stream:%s", chatId),
 	).Result()
 
 	if err != nil {

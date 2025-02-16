@@ -9,7 +9,7 @@ import (
 )
 
 // TestClientRegister tests the RegisterClientChat function by creating a new client ID,
-// registering the client chat, and verifying that the Redis stream group is created
+// registering the client chat, and verifying that the Redis		 stream group is created
 // with the expected name. It checks for errors during registration and retrieval of
 // stream group information, and asserts that the group name matches the expected format.
 
