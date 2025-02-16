@@ -16,6 +16,13 @@ import (
 var redisClient *redis.Client
 var databaseMonitor *monitor.Monitor
 
+const (
+	StreamNamePrefix   = "stream"
+	GroupNamePrefix    = "group"
+	ChatsPrefix        = "chats"
+	ConsumerNamePrefix = "consumer"
+)
+
 // init initializes the Redis client and database monitor. It pings the Redis
 // server to test the connection, and logs an error if there is one. If the
 // connection is successful, it logs an info message to the database log.
@@ -38,34 +45,46 @@ func init() {
 	databaseMonitor.Info("Connected to Redis")
 }
 
-// RegisterClientChat creates a new Redis Stream for the given chatId if it does
-// not exist, and does nothing if it does exist. The function times out after
-// 5 seconds, and returns an error if there was an error communicating with
-// Redis.
+// RegisterClientChat creates a Redis Stream and Consumer Group for the given chatId
+// if they do not already exist. It returns an error if the Redis command fails.
+// If the error is that the Consumer Group name already exists, the function logs
+// an info message and returns the error. The function times out after 30 seconds.
+// If the timeout is exceeded, the context is canceled and an error is returned.
+// If the chatId is successfully registered, the function returns nil.
 func RegisterClientChat(chatId string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
 	defer cancel()
 
 	err := redisClient.XGroupCreateMkStream(
 		ctx,
-		fmt.Sprintf("stream:%s", chatId),
-		fmt.Sprintf("group:%s", chatId),
+		fmt.Sprintf("%s:%s", StreamNamePrefix, chatId),
+		fmt.Sprintf("%s:%s", GroupNamePrefix, chatId),
 		"0",
 	).Err()
 
 	if err != nil && strings.Contains(err.Error(), "BUSYGROUP Consumer Group name already exists") {
 		databaseMonitor.Info(fmt.Sprintf("Stream already exists: %s", chatId))
+		return err
+	}
+
+	_, err = redisClient.SAdd(
+		ctx,
+		fmt.Sprintf("%s:online", ChatsPrefix),
+		fmt.Sprintf("stream:%s", chatId),
+	).Result()
+
+	if err != nil {
+		return err
 	}
 
 	return nil
 
 }
 
-// DeleteClientChat deletes a Redis Stream for the given chatId. The function
-// times out after 5 seconds, and returns an error if there was an error
-// communicating with Redis. If the stream does not exist, the function does
-// nothing and does not return an error.
+// DeleteClientChat removes a Redis Stream for the given chatId, and removes the
+// chatId from the set of online chats. The function times out after 5 seconds,
+// and returns an error if there was an error communicating with Redis.
 func DeleteClientChat(chatId string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
@@ -73,22 +92,31 @@ func DeleteClientChat(chatId string) error {
 
 	err := redisClient.XGroupDestroy(
 		ctx,
-		fmt.Sprintf("stream:%s", chatId),
-		fmt.Sprintf("group:%s", chatId),
+		fmt.Sprintf("%s:%s", StreamNamePrefix, chatId),
+		fmt.Sprintf("%s:%s", GroupNamePrefix, chatId),
 	).Err()
 
 	if err != nil {
 		return err
 	}
 
-	err = redisClient.Del(ctx, fmt.Sprintf("stream:%s", chatId)).Err()
+	err = redisClient.Del(ctx, fmt.Sprintf("%s:%s", StreamNamePrefix, chatId)).Err()
+
+	if err != nil {
+		return err
+	}
+
+	err = redisClient.SRem(
+		ctx,
+		fmt.Sprintf("%s:online", ChatsPrefix),
+		fmt.Sprintf("stream:%s", chatId),
+	).Err()
 
 	if err != nil {
 		return err
 	}
 	return nil
 }
-
 
 // StreamChat listens for new messages from Redis Streams specified by the
 // subscribe channel, and sends them to the chatChannel channel. It creates a
@@ -107,10 +135,10 @@ func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, ch
 		go func(chatChannel chan<- protocol.Payload, streamID string) {
 
 			args := &redis.XReadGroupArgs{
-				Group:    fmt.Sprintf("group:%s", chatId),
-				Consumer: fmt.Sprintf("consumer:%s", uuid.NewString()),
+				Group:    fmt.Sprintf("%s:%s", GroupNamePrefix, chatId),
+				Consumer: fmt.Sprintf("%s:%s", ConsumerNamePrefix, uuid.NewString()),
 				Streams: []string{
-					fmt.Sprintf("stream:%s", streamID),
+					fmt.Sprintf("%s:%s", StreamNamePrefix, streamID),
 					">",
 				},
 			}
@@ -143,8 +171,8 @@ func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, ch
 				chatChannel <- &message
 
 				err = redisClient.XAck(databaseCTX,
-					fmt.Sprintf("stream:%s", streamID),
-					fmt.Sprintf("group:%s", chatId),
+					fmt.Sprintf("%s:%s", StreamNamePrefix, streamID),
+					fmt.Sprintf("%s:%s", GroupNamePrefix, chatId),
 					messages[0].Messages[0].ID).Err()
 
 				if err != nil {
@@ -169,7 +197,7 @@ func PostToChat(message string, chatId string) error {
 	defer cancel()
 
 	_, err := redisClient.XAdd(ctx, &redis.XAddArgs{
-		Stream: fmt.Sprintf("stream:%s", chatId),
+		Stream: fmt.Sprintf("%s:%s", StreamNamePrefix, chatId),
 		Values: map[string]interface{}{
 			"message": message,
 		},
@@ -179,4 +207,27 @@ func PostToChat(message string, chatId string) error {
 		return err
 	}
 	return nil
+}
+
+// CheckChatExists returns true if the given chatId exists in the Redis set "chats",
+// and false otherwise. If an error occurs while communicating with Redis, the
+// error is logged and false is returned. The function times out after 5 seconds.
+func CheckChatExists(chatId string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	defer cancel()
+
+	result, err := redisClient.SIsMember(
+		ctx,
+		fmt.Sprintf("%s:online", ChatsPrefix),
+		chatId,
+	).Result()
+
+	if err != nil {
+		databaseMonitor.Error(err.Error())
+		return false
+	}
+
+	return result
+
 }

@@ -33,12 +33,15 @@ func TestClientRegister(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
-
 	for _, group := range groups {
 
 		if group.Name != fmt.Sprintf("group:%s", clientID) {
 			t.Errorf("Expected group name to be %s, got %s", fmt.Sprintf("group:%s", clientID), group.Name)
 		}
+	}
+
+	if !CheckChatExists(clientID) {
+		t.Errorf("Expected chat to exist, but it does not")
 	}
 }
 
@@ -63,6 +66,7 @@ func TestClientDelete(t *testing.T) {
 		t.Errorf("Expected no error, got %v", err)
 	}
 
+	// make sure that the consumer group is deleted
 	_, err = redisClient.XInfoGroups(
 		ctx,
 		fmt.Sprintf("stream:%s", clientID),
@@ -70,5 +74,17 @@ func TestClientDelete(t *testing.T) {
 
 	if err == nil {
 		t.Error("Expected ERR no such key but hot nil")
+	}
+
+	// make sure that the stream is removed from the online chats set
+
+	if CheckChatExists(clientID) {
+		t.Errorf("Expected chat to not exist, but it does")
+	}
+
+	// make sure that the stream does not exist
+
+	if redisClient.Exists(ctx, fmt.Sprintf("stream:%s", clientID)).Val() == 1 {
+		t.Errorf("Expected stream to not exist, but it does")
 	}
 }
