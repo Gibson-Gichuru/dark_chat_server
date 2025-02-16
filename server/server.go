@@ -6,6 +6,7 @@ import (
 	"darkchat/monitor"
 	"darkchat/pinger"
 	"darkchat/protocol"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,12 @@ import (
 )
 
 const DEFAULTPINGINTERVAL = 30 * time.Second
+
+const (
+	REXTENTION uint8 = iota + 1
+	WEXTENTION
+	RWEXTENTION
+)
 
 var monitorLogger = monitor.New("server.log")
 
@@ -82,10 +89,13 @@ func ServerStart(builder ConnectionBuilder) {
 func handleClientConnection(client Client) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var streamingChanel = make(chan protocol.Payload, 20)
+	var clientStreamSubChannel = make(chan string, 1)
+	clientStreamSubChannel <- client.chatId
 
 	defer func() {
 		cancel()
 		client.connection.Close()
+		close(clientStreamSubChannel)
 
 		err := database.DeleteClientChat(client.chatId)
 
@@ -106,11 +116,11 @@ func handleClientConnection(client Client) {
 
 	go pinger.Ping(ctx, client.connection, resetTimer)
 
-	if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL); err != nil {
+	if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL, RWEXTENTION); err != nil {
 		return
 	}
 
-	go database.StreamChat(streamingChanel, client.chatId)
+	go database.StreamChat(streamingChanel, clientStreamSubChannel, client.chatId)
 
 	go func() {
 		for message := range streamingChanel {
@@ -131,31 +141,78 @@ func handleClientConnection(client Client) {
 		}
 		resetTimer <- 0
 
-		if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL); err != nil {
+		if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL, WEXTENTION); err != nil {
 			return
 		}
 
-		database.PostToChat(message.String(), client.chatId)
+		var m protocol.Message
+
+		err = json.Unmarshal(message.Byte(), &m)
+
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return
+		}
+
+		if !database.CheckChatExists(m.To) {
+
+			err := protocol.Error_("chat does not exist")
+			if clientErr := writeToClient(client, &err, protocol.Error); clientErr != nil {
+				return
+			}
+			continue
+		}
+
+		database.PostToChat(m.String(), m.To)
 
 	}
 }
 
+// writeToClient writes the given message to the client connection, with the
+// given message type, and resets the connection deadline to the default ping
+// interval. It returns an error if there was an error writing to the client or
+// extending the deadline.
 func writeToClient(client Client, message protocol.Payload, messageType uint8) error {
 	_, err := protocol.Encode(
 		client.connection,
 		message,
 		messageType,
 	)
-	return err
-}
-
-func extendDeadline(conn net.Conn, duration time.Duration) error {
-	err := conn.SetDeadline(time.Now().Add(duration))
-
 	if err != nil {
-		monitorLogger.Error(err.Error())
 		return err
 	}
 
+	if internalError := extendDeadline(client.connection, DEFAULTPINGINTERVAL, REXTENTION); internalError != nil {
+		return internalError
+	}
+	return nil
+}
+
+// extendDeadline sets the deadline for the given connection to the current time plus the given duration.
+// If an error occurs while setting the deadline, the error is logged and returned.
+// Otherwise, the function returns nil.
+func extendDeadline(conn net.Conn, duration time.Duration, extentionType uint8) error {
+
+	switch extentionType {
+	case REXTENTION:
+		err := conn.SetReadDeadline(time.Now().Add(duration))
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return err
+		}
+	case WEXTENTION:
+		err := conn.SetWriteDeadline(time.Now().Add(duration))
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return err
+		}
+
+	case RWEXTENTION:
+		err := conn.SetDeadline(time.Now().Add(duration))
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return err
+		}
+	}
 	return nil
 }

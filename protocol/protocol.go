@@ -30,6 +30,9 @@ func Decode(r io.Reader) (Payload, error) {
 	}
 }
 
+// Encode writes a message to the writer with a message type header, and returns
+// the number of bytes written and any error encountered. If the message type is
+// unknown, it returns an error.
 func Encode(w io.Writer, payload Payload, payloadType uint8) (int64, error) {
 
 	switch payloadType {

@@ -15,22 +15,22 @@ import (
 
 */
 
-type _Error string
+type Error_ string
 
 // String implements the Stringer interface.
 // It returns a string representation of the error message.
-func (e _Error) String() string {
+func (e Error_) String() string {
 	return string(e)
 }
 
-func (e _Error) Byte() []byte {
+func (e Error_) Byte() []byte {
 	return []byte(e)
 }
 
 // WriteTo implements the io.WriterTo interface.
 // It writes an error message to the writer with a base64 encoded string.
 // It returns the number of bytes written and any error encountered.
-func (e _Error) WriteTo(w io.Writer) (int64, error) {
+func (e Error_) WriteTo(w io.Writer) (int64, error) {
 
 	encoded := base64.StdEncoding.EncodeToString(e.Byte())
 	o, err := w.Write([]byte(encoded))
@@ -41,7 +41,7 @@ func (e _Error) WriteTo(w io.Writer) (int64, error) {
 // ReadFrom implements the io.ReaderFrom interface.
 // It reads an error message from the reader with a size header, and decodes it into an _Error.
 // It returns the number of bytes read and any error encountered.
-func (e *_Error) ReadFrom(r io.Reader) (int64, error) {
+func (e *Error_) ReadFrom(r io.Reader) (int64, error) {
 	var size uint32
 
 	err := binary.Read(r, binary.BigEndian, &size)
@@ -64,7 +64,7 @@ func (e *_Error) ReadFrom(r io.Reader) (int64, error) {
 		return int64(n), err
 	}
 
-	*e = _Error(decoded)
+	*e = Error_(decoded)
 
 	return int64(n), nil
 }
@@ -100,7 +100,7 @@ func decodeError(r io.Reader) (Payload, error) {
 
 	var size uint32
 
-	var payload = new(_Error)
+	var payload = new(Error_)
 
 	err := binary.Read(r, binary.BigEndian, &size)
 
