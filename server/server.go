@@ -6,6 +6,7 @@ import (
 	"darkchat/monitor"
 	"darkchat/pinger"
 	"darkchat/protocol"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -138,11 +139,29 @@ func handleClientConnection(client Client) {
 			return
 		}
 
-		database.PostToChat(message.String(), client.chatId)
+		var m protocol.Message
+
+		err = json.Unmarshal(message.Byte(), &m)
+
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return
+		}
+
+		if !database.CheckChatExists(m.To) {
+
+			err := protocol.Error_("chat does not exist")
+			writeToClient(client, &err, protocol.Error)
+			continue
+		}
+
+		database.PostToChat(m.String(), m.To)
 
 	}
 }
 
+// writeToClient writes a message to the given client connection with the given message type.
+// It returns any error encountered while writing the message.
 func writeToClient(client Client, message protocol.Payload, messageType uint8) error {
 	_, err := protocol.Encode(
 		client.connection,
@@ -152,6 +171,9 @@ func writeToClient(client Client, message protocol.Payload, messageType uint8) e
 	return err
 }
 
+// extendDeadline sets the deadline for the given connection to the current time plus the given duration.
+// If an error occurs while setting the deadline, the error is logged and returned.
+// Otherwise, the function returns nil.
 func extendDeadline(conn net.Conn, duration time.Duration) error {
 	err := conn.SetDeadline(time.Now().Add(duration))
 
