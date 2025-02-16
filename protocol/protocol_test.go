@@ -12,7 +12,9 @@ func TestHeartBeatPayloadEncoding(t *testing.T) {
 
 	buf := new(bytes.Buffer)
 
-	_, err := Encode(buf, nil, HeartBeat)
+	var payload = new(Beat)
+
+	_, err := Encode(buf, payload, HeartBeat)
 
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
