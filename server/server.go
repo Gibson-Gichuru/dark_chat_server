@@ -17,6 +17,12 @@ import (
 
 const DEFAULTPINGINTERVAL = 30 * time.Second
 
+const (
+	REXTENTION uint8 = iota + 1
+	WEXTENTION
+	RWEXTENTION
+)
+
 var monitorLogger = monitor.New("server.log")
 
 type ConnectionBuilder struct {
@@ -110,7 +116,7 @@ func handleClientConnection(client Client) {
 
 	go pinger.Ping(ctx, client.connection, resetTimer)
 
-	if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL); err != nil {
+	if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL, RWEXTENTION); err != nil {
 		return
 	}
 
@@ -135,7 +141,7 @@ func handleClientConnection(client Client) {
 		}
 		resetTimer <- 0
 
-		if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL); err != nil {
+		if err := extendDeadline(client.connection, DEFAULTPINGINTERVAL, WEXTENTION); err != nil {
 			return
 		}
 
@@ -151,7 +157,9 @@ func handleClientConnection(client Client) {
 		if !database.CheckChatExists(m.To) {
 
 			err := protocol.Error_("chat does not exist")
-			writeToClient(client, &err, protocol.Error)
+			if clientErr := writeToClient(client, &err, protocol.Error); clientErr != nil {
+				return
+			}
 			continue
 		}
 
@@ -160,27 +168,51 @@ func handleClientConnection(client Client) {
 	}
 }
 
-// writeToClient writes a message to the given client connection with the given message type.
-// It returns any error encountered while writing the message.
+// writeToClient writes the given message to the client connection, with the
+// given message type, and resets the connection deadline to the default ping
+// interval. It returns an error if there was an error writing to the client or
+// extending the deadline.
 func writeToClient(client Client, message protocol.Payload, messageType uint8) error {
 	_, err := protocol.Encode(
 		client.connection,
 		message,
 		messageType,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	if internalError := extendDeadline(client.connection, DEFAULTPINGINTERVAL, REXTENTION); internalError != nil {
+		return internalError
+	}
+	return nil
 }
 
 // extendDeadline sets the deadline for the given connection to the current time plus the given duration.
 // If an error occurs while setting the deadline, the error is logged and returned.
 // Otherwise, the function returns nil.
-func extendDeadline(conn net.Conn, duration time.Duration) error {
-	err := conn.SetDeadline(time.Now().Add(duration))
+func extendDeadline(conn net.Conn, duration time.Duration, extentionType uint8) error {
 
-	if err != nil {
-		monitorLogger.Error(err.Error())
-		return err
+	switch extentionType {
+	case REXTENTION:
+		err := conn.SetReadDeadline(time.Now().Add(duration))
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return err
+		}
+	case WEXTENTION:
+		err := conn.SetWriteDeadline(time.Now().Add(duration))
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return err
+		}
+
+	case RWEXTENTION:
+		err := conn.SetDeadline(time.Now().Add(duration))
+		if err != nil {
+			monitorLogger.Error(err.Error())
+			return err
+		}
 	}
-
 	return nil
 }
