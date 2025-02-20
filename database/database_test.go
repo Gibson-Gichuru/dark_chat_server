@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"darkchat/protocol"
 	"fmt"
 	"testing"
 
@@ -87,4 +88,39 @@ func TestClientDelete(t *testing.T) {
 	if redisClient.Exists(ctx, fmt.Sprintf("stream:%s", clientID)).Val() == 1 {
 		t.Errorf("Expected stream to not exist, but it does")
 	}
+}
+
+func TestStreamChat(t *testing.T) {
+	listeningChan := make(chan protocol.Payload, 20)
+
+	subchannels := make(chan string, 10)
+
+	clientId := uuid.NewString()
+
+	RegisterClientChat(clientId)
+
+	subchannels <- clientId
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	defer func() {
+		close(subchannels)
+		DeleteClientChat(clientId)
+	}()
+
+	go StreamChat(ctx, listeningChan, subchannels, clientId)
+
+	payload := protocol.Message{
+		Message: "Hello, world",
+		From:    clientId,
+		To:      clientId,
+	}
+	PostToChat(payload.String(), clientId)
+
+	receved := <-listeningChan
+
+	if payload.String() != receved.String() {
+		t.Errorf("Expected %s, got %s", payload.String(), receved.String())
+	}
+	cancel()
 }

@@ -118,14 +118,13 @@ func DeleteClientChat(chatId string) error {
 	return nil
 }
 
-
 // StreamChat reads messages from Redis streams and sends them to the given channel. It subscribes to
 // the given streams and reads messages from them. If the subscribe channel is closed, the function
 // returns. If there is an error communicating with Redis, the error is logged to the database log.
 // The function will continue to run until the subscribe channel is closed or there is an error
 // communicating with Redis. The function times out after 100 milliseconds if there are no messages
 // in any of the streams.
-func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, chatId string) {
+func StreamChat(ctx context.Context, chatChannel chan<- protocol.Payload, subscribe <-chan string, chatId string) {
 	databaseCTX, cancel := context.WithCancel(context.Background())
 	defer func() {
 		close(chatChannel)
@@ -144,6 +143,9 @@ func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, ch
 			if !activeStreams[streamName] {
 				activeStreams[streamName] = true
 			}
+
+		case <-ctx.Done():
+			return
 
 		default:
 
@@ -181,7 +183,7 @@ func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, ch
 				continue
 			}
 
-			var message protocol.Payload
+			var message protocol.Message
 
 			err = json.Unmarshal([]byte(messageString), &message)
 			if err != nil {
@@ -189,7 +191,7 @@ func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, ch
 				continue
 			}
 
-			chatChannel <- message
+			chatChannel <- &message
 
 			err = redisClient.XAck(databaseCTX,
 				result[0].Stream,
