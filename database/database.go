@@ -118,12 +118,13 @@ func DeleteClientChat(chatId string) error {
 	return nil
 }
 
-// StreamChat listens for new messages from Redis Streams specified by the
-// subscribe channel, and sends them to the chatChannel channel. It creates a
-// new Redis consumer group for each stream, and will continue to receive
-// messages from that stream until the context is canceled. If there is an error
-// communicating with Redis, the error is logged. If the stream does not exist,
-// the function does nothing and does not return an error.
+
+// StreamChat reads messages from Redis streams and sends them to the given channel. It subscribes to
+// the given streams and reads messages from them. If the subscribe channel is closed, the function
+// returns. If there is an error communicating with Redis, the error is logged to the database log.
+// The function will continue to run until the subscribe channel is closed or there is an error
+// communicating with Redis. The function times out after 100 milliseconds if there are no messages
+// in any of the streams.
 func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, chatId string) {
 	databaseCTX, cancel := context.WithCancel(context.Background())
 	defer func() {
@@ -131,57 +132,76 @@ func StreamChat(chatChannel chan<- protocol.Payload, subscribe <-chan string, ch
 		cancel()
 	}()
 
-	for stream := range subscribe {
-		go func(chatChannel chan<- protocol.Payload, streamID string) {
+	activeStreams := make(map[string]bool)
+	consumerName := fmt.Sprintf("%s:%s", ConsumerNamePrefix, uuid.NewString())
+	groupName := fmt.Sprintf("%s:%s", GroupNamePrefix, chatId)
+
+	for {
+
+		select {
+		case newSub := <-subscribe:
+			streamName := fmt.Sprintf("%s:%s", StreamNamePrefix, newSub)
+			if !activeStreams[streamName] {
+				activeStreams[streamName] = true
+			}
+
+		default:
+
+			streams := make([]string, 0, len(activeStreams))
+
+			for stream := range activeStreams {
+				streams = append(streams, stream, ">")
+			}
+
+			if len(streams) == 0 {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
 
 			args := &redis.XReadGroupArgs{
-				Group:    fmt.Sprintf("%s:%s", GroupNamePrefix, chatId),
-				Consumer: fmt.Sprintf("%s:%s", ConsumerNamePrefix, uuid.NewString()),
-				Streams: []string{
-					fmt.Sprintf("%s:%s", StreamNamePrefix, streamID),
-					">",
-				},
+				Group:    groupName,
+				Consumer: consumerName,
+				Streams:  streams,
+				Block:    100 * time.Millisecond,
 			}
 
-			for {
+			result, err := redisClient.XReadGroup(databaseCTX, args).Result()
 
-				messages, err := redisClient.XReadGroup(databaseCTX, args).Result()
-				if err != nil {
-					databaseMonitor.Error(err.Error())
-					break
-				}
-				if len(messages) == 0 || len(messages[0].Messages) == 0 {
-					continue
-				}
-
-				messageString, ok := messages[0].Messages[0].Values["message"].(string)
-				if !ok {
-					databaseMonitor.Error("Failed to convert message to string")
-					return
-				}
-
-				var message protocol.Message
-
-				err = json.Unmarshal([]byte(messageString), &message)
-
-				if err != nil {
-					databaseMonitor.Error(err.Error())
-					return
-				}
-				chatChannel <- &message
-
-				err = redisClient.XAck(databaseCTX,
-					fmt.Sprintf("%s:%s", StreamNamePrefix, streamID),
-					fmt.Sprintf("%s:%s", GroupNamePrefix, chatId),
-					messages[0].Messages[0].ID).Err()
-
-				if err != nil {
-					databaseMonitor.Error(err.Error())
-					return
-				}
+			if err != nil && err != redis.Nil {
+				databaseMonitor.Error(err.Error())
+				continue
+			}
+			if len(result) == 0 || len(result[0].Messages) == 0 {
+				continue
 			}
 
-		}(chatChannel, stream)
+			messageString, ok := result[0].Messages[0].Values["message"].(string)
+			if !ok {
+				databaseMonitor.Error("Expected message to be a string")
+				continue
+			}
+
+			var message protocol.Payload
+
+			err = json.Unmarshal([]byte(messageString), &message)
+			if err != nil {
+				databaseMonitor.Error(err.Error())
+				continue
+			}
+
+			chatChannel <- message
+
+			err = redisClient.XAck(databaseCTX,
+				result[0].Stream,
+				fmt.Sprintf("%s:%s", GroupNamePrefix, chatId),
+				result[0].Messages[0].ID).Err()
+
+			if err != nil {
+				databaseMonitor.Error(err.Error())
+				return
+			}
+
+		}
 	}
 
 }
