@@ -82,3 +82,38 @@ func TestMessagePayloadDecoding(t *testing.T) {
 		t.Errorf("Expected m to be : %s got : %s", message.String(), m.String())
 	}
 }
+
+func TestErrorPayloadEncoding(t *testing.T) {
+	errPayload := Error_("Something went wrong")
+
+	buf := new(bytes.Buffer)
+
+	_, err := Encode(buf, &errPayload, Error)
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+}
+
+func TestDecodeErrorPayload(t *testing.T) {
+	errPayload := Error_("Something went wrong")
+
+	buf := new(bytes.Buffer)
+
+	_, err := Encode(buf, &errPayload, Error)
+
+	if err != nil {
+		t.Errorf("Expected no Encoding error, got %v", err)
+	}
+
+	m, err := Decode(buf)
+
+	if err != nil {
+		t.Errorf("Expected not Decoding error got: %v", err)
+	}
+
+	if errPayload.String() != m.String() {
+		t.Errorf("Expected m to be : %s got : %s", errPayload.String(), m.String())
+	}
+}

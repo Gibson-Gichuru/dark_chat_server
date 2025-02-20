@@ -81,12 +81,14 @@ func encodeError(w io.Writer, payload Payload) (int64, error) {
 
 	var n int64 = 1
 
-	err = binary.Write(w, binary.BigEndian, uint32(len(payload.Byte())))
+	err = binary.Write(w, binary.BigEndian, uint32(len(
+		base64.StdEncoding.EncodeToString(payload.Byte()),
+	)))
 
 	if err != nil {
 		return n, err
 	}
-	n += 4
+	n += 1
 
 	o, err := payload.WriteTo(w)
 
@@ -108,7 +110,7 @@ func decodeError(r io.Reader) (Payload, error) {
 		return nil, err
 	}
 
-	if size > MaxPayloadsize {
+	if uint32(size) > MaxPayloadsize {
 		return nil, ErrorMaxPayloadSize
 	}
 
