@@ -21,6 +21,9 @@ func TestHeartBeatPayloadEncoding(t *testing.T) {
 	}
 }
 
+// TestHearBeatPayloadDecoding tests that a heartbeat message can be encoded and decoded
+// correctly. It creates a heartbeat message, encodes it, decodes it, and checks that the
+// decoding was successful.
 func TestHearBeatPayloadDecoding(t *testing.T) {
 	buf := new(bytes.Buffer)
 
@@ -57,6 +60,9 @@ func TestMessagePayloadEncoding(t *testing.T) {
 	}
 }
 
+// TestMessagePayloadDecoding tests that a message can be decoded correctly.
+// It creates a message, encodes it, decodes it, and checks that the decoded
+// message is equal to the original message.
 func TestMessagePayloadDecoding(t *testing.T) {
 	message := Message{
 		Message: "Hello, world",
@@ -83,6 +89,9 @@ func TestMessagePayloadDecoding(t *testing.T) {
 	}
 }
 
+// TestErrorPayloadEncoding tests that a error message can be encoded
+// correctly. It creates a error message, encodes it, and checks that the
+// encoding was successful.
 func TestErrorPayloadEncoding(t *testing.T) {
 	errPayload := Error_("Something went wrong")
 
@@ -96,6 +105,9 @@ func TestErrorPayloadEncoding(t *testing.T) {
 
 }
 
+// TestDecodeErrorPayload tests that a error message can be encoded and then decoded
+// correctly. It creates a error message, encodes it, decodes it, and checks that the
+// decoded error message is equal to the original error message.
 func TestDecodeErrorPayload(t *testing.T) {
 	errPayload := Error_("Something went wrong")
 

@@ -6,10 +6,12 @@ import (
 	"darkchat/protocol"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,16 +29,34 @@ const (
 // server to test the connection, and logs an error if there is one. If the
 // connection is successful, it logs an info message to the database log.
 
+// init initializes the Redis client and database monitor. It pings the Redis
+// server to test the connection. If the connection is successful, it logs an
+// info message to the database log. Otherwise, it logs an error.
 func init() {
+
+	err := godotenv.Load()
+
+	if err != nil {
+		fmt.Println("Error loading .env file")
+	}
+
+	redisHost := os.Getenv("REDIS_HOST")
+	redisPort := os.Getenv("REDIS_PORT")
+
+	if redisHost == "" || redisPort == "" {
+		redisHost = "localhost"
+		redisPort = "6379"
+	}
+
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     fmt.Sprintf("%s:%s", redisHost, redisPort),
 		Password: "",
 		DB:       0,
 	})
 
 	databaseMonitor = monitor.New("database.log")
 
-	_, err := redisClient.Ping(context.Background()).Result()
+	_, err = redisClient.Ping(context.Background()).Result()
 
 	if err != nil {
 		databaseMonitor.Error(err.Error())

@@ -12,13 +12,17 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v2
 
-            - name: Set up Go
-              uses: actions/setup-go@v2
-              with:
-                  go-version: 1.23
+            - name: Builing application test network
+              run: docker network create test-net
+            
+            - name: Build application
+              run: docker build -t darkchat .
+            
+            - name: Adding the application container to the test-net netwok
+              run: docker run -e REDIS_HOST=redis -e REDIS_PORT=6379  --network test-net --name darkchatapp darkchat
 
-            - name: install dependencies
-              run: go mod download
-
-            - name: Run tests
-              run: go test -v ./...
+            - name: Setting up the redis container on the test-net network
+              run: docker run -d --name redis --network test-net redis
+            
+            - name: Running the application tests
+              run: docker exec -i darkchatapp go test -v ./...
