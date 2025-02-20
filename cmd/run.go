@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"darkchat/server"
 
 	"github.com/spf13/cobra"
@@ -15,10 +16,11 @@ var runCmd = &cobra.Command{
 
 		serverAddress, _ := cmd.Flags().GetString("address")
 		serverPort, _ := cmd.Flags().GetString("port")
+		serverctx := context.Background()
 
 		connectionBuilder := server.ConnectionBuilder{ConnectionType: "tcp", Address: serverAddress, Port: serverPort}
 
-		server.ServerStart(connectionBuilder)
+		server.ServerStart(serverctx, connectionBuilder)
 
 	},
 }
