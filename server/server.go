@@ -49,7 +49,7 @@ func (c ConnectionBuilder) Addressbuilder() string {
 // error occurs while accepting a connection, the error is logged and the
 // function continues. The function does not return until an error occurs while
 // listening.
-func ServerStart(builder ConnectionBuilder) {
+func ServerStart(ctx context.Context, builder ConnectionBuilder) {
 
 	server, err := net.Listen(builder.ConnectionType, builder.Addressbuilder())
 
@@ -62,22 +62,27 @@ func ServerStart(builder ConnectionBuilder) {
 
 	defer server.Close()
 
-	for {
-		conn, err := server.Accept()
-		if err != nil {
-			monitorLogger.Error(err.Error())
-			continue
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		for {
+			conn, err := server.Accept()
+			if err != nil {
+				monitorLogger.Error(err.Error())
+				continue
+			}
+
+			client := Client{
+				connection: conn,
+				chatId:     uuid.NewString(),
+			}
+
+			monitorLogger.Info(fmt.Sprintf("Accepted connection from %s", conn.RemoteAddr().String()))
+
+			go handleClientConnection(client)
+
 		}
-
-		client := Client{
-			connection: conn,
-			chatId:     uuid.NewString(),
-		}
-
-		monitorLogger.Info(fmt.Sprintf("Accepted connection from %s", conn.RemoteAddr().String()))
-
-		go handleClientConnection(client)
-
 	}
 }
 
@@ -120,7 +125,7 @@ func handleClientConnection(client Client) {
 		return
 	}
 
-	go database.StreamChat(streamingChanel, clientStreamSubChannel, client.chatId)
+	go database.StreamChat(ctx, streamingChanel, clientStreamSubChannel, client.chatId)
 
 	go func() {
 		for message := range streamingChanel {
@@ -145,25 +150,42 @@ func handleClientConnection(client Client) {
 			return
 		}
 
-		var m protocol.Message
+		switch message.(type) {
+		case *protocol.Beat:
+			extendDeadline(client.connection, DEFAULTPINGINTERVAL, RWEXTENTION)
 
-		err = json.Unmarshal(message.Byte(), &m)
+		case *protocol.Message:
+			var m protocol.Message
 
-		if err != nil {
-			monitorLogger.Error(err.Error())
-			return
-		}
+			err = json.Unmarshal(message.Byte(), &m)
 
-		if !database.CheckChatExists(m.To) {
-
-			err := protocol.Error_("chat does not exist")
-			if clientErr := writeToClient(client, &err, protocol.Error); clientErr != nil {
+			if err != nil {
+				monitorLogger.Error(err.Error())
 				return
 			}
+
+			if !database.CheckChatExists(m.To) {
+				err := protocol.Error_("chat does not exist")
+				if clientErr := writeToClient(client, &err, protocol.Error); clientErr != nil {
+					monitorLogger.Error(clientErr.Error())
+					return
+				}
+				continue
+			}
+
+			database.PostToChat(m.String(), m.To)
+		case *protocol.Error_:
+			var e protocol.Error_
+
+			err = json.Unmarshal(e.Byte(), &e)
+
+			if err != nil {
+				monitorLogger.Error(err.Error())
+				return
+			}
+			monitorLogger.Error(e.String())
 			continue
 		}
-
-		database.PostToChat(m.String(), m.To)
 
 	}
 }
