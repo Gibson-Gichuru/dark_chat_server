@@ -27,7 +27,7 @@ jobs:
                 done
 
             - name: Build application container
-              run: docker build -t darkchat .
+              run: docker build -f Test.Dockerfile -t darkchat-test .
 
             - name: Run tests in container
               run: |
