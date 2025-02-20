@@ -4,6 +4,7 @@ on:
     pull_request:
         branches:
             - main
+
 jobs:
     test:
         runs-on: ubuntu-latest
@@ -12,17 +13,22 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v2
 
-            - name: Builing application test network
+            - name: Create test network
               run: docker network create test-net
-            
-            - name: Build application
-              run: docker build -t darkchat .
-            
-            - name: Adding the application container to the test-net netwok
-              run: docker run -e REDIS_HOST=redis -e REDIS_PORT=6379  --network test-net --name darkchatapp darkchat
 
-            - name: Setting up the redis container on the test-net network
+            - name: Start Redis container
               run: docker run -d --name redis --network test-net redis
-            
-            - name: Running the application tests
-              run: docker exec -i darkchatapp go test -v ./...
+
+            - name: Wait for Redis to be ready
+              run: |
+                until docker exec redis redis-cli ping | grep PONG; do
+                  echo "Waiting for Redis..."
+                  sleep 2
+                done
+
+            - name: Build application container
+              run: docker build -t darkchat .
+
+            - name: Run tests in container
+              run: |
+                docker run --rm --network test-net -e REDIS_HOST=redis -e REDIS_PORT=6379 darkchat go test -v ./...
