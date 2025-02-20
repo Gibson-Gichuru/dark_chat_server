@@ -20,4 +20,4 @@ RUN chmod +x /app/darkchat
 
 EXPOSE 8080
 
-ENTRYPOINT [ "./darkchat" "run"]
+ENTRYPOINT [ "./darkchat", "run"]
