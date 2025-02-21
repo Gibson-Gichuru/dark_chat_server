@@ -3,13 +3,13 @@ package database
 import (
 	"context"
 	"darkchat/monitor"
-	"darkchat/protocol"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	protocol "github.com/Gibson-Gichuru/darkchat-protocol"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
@@ -24,7 +24,6 @@ const (
 	ChatsPrefix        = "chats"
 	ConsumerNamePrefix = "consumer"
 )
-
 
 // init loads the .env file, sets up a Redis client with the specified host and port from
 // the environment variables REDIS_HOST and REDIS_PORT. If these variables are not set,
