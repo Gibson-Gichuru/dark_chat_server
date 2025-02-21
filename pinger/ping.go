@@ -3,9 +3,10 @@ package pinger
 import (
 	"context"
 	"darkchat/monitor"
-	"darkchat/protocol"
 	"io"
 	"time"
+
+	protocol "github.com/Gibson-Gichuru/darkchat-protocol"
 )
 
 const DEFAULTPINGINTERVAL = 30 * time.Second

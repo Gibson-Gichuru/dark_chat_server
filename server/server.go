@@ -5,7 +5,6 @@ import (
 	"darkchat/database"
 	"darkchat/monitor"
 	"darkchat/pinger"
-	"darkchat/protocol"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	protocol "github.com/Gibson-Gichuru/darkchat-protocol"
 )
 
 const DEFAULTPINGINTERVAL = 30 * time.Second

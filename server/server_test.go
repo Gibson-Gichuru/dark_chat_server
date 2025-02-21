@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
-	"darkchat/protocol"
+
 	"net"
 	"testing"
+
+	protocol "github.com/Gibson-Gichuru/darkchat-protocol"
 )
 
 func TestClientServerCom(t *testing.T) {
@@ -36,7 +38,6 @@ func TestClientServerCom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	p, err := protocol.Decode(con)
 

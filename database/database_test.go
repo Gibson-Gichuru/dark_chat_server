@@ -2,10 +2,10 @@ package database
 
 import (
 	"context"
-	"darkchat/protocol"
 	"fmt"
 	"testing"
 
+	protocol "github.com/Gibson-Gichuru/darkchat-protocol"
 	"github.com/google/uuid"
 )
 

@@ -3,13 +3,13 @@ package database
 import (
 	"context"
 	"darkchat/monitor"
-	"darkchat/protocol"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	protocol "github.com/Gibson-Gichuru/darkchat-protocol"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
@@ -25,13 +25,10 @@ const (
 	ConsumerNamePrefix = "consumer"
 )
 
-// init initializes the Redis client and database monitor. It pings the Redis
-// server to test the connection, and logs an error if there is one. If the
-// connection is successful, it logs an info message to the database log.
-
-// init initializes the Redis client and database monitor. It pings the Redis
-// server to test the connection. If the connection is successful, it logs an
-// info message to the database log. Otherwise, it logs an error.
+// init loads the .env file, sets up a Redis client with the specified host and port from
+// the environment variables REDIS_HOST and REDIS_PORT. If these variables are not set,
+// the client defaults to localhost:6379. The function logs an error if there is an error
+// loading the .env file, and logs the result of the Redis PING command.
 func init() {
 
 	err := godotenv.Load()
